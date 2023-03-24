@@ -41,12 +41,94 @@ for index in range(1, 1+num_of_images):
 plt.show()
 
 
-
-##Build model myself
+####### Build model with pytorch ################
 input_size = 784
 hidden_sizes = [300, 200]
 output_size = 10
+model = nn.Sequential(nn.Linear(input_size, hidden_sizes[0]),
+                      nn.Sigmoid(),
+                      nn.Linear(hidden_sizes[0], hidden_sizes[1]),
+                      nn.Sigmoid(),
+                      nn.Linear(hidden_sizes[1], output_size),
+                      nn.LogSoftmax(dim=1))
 
+
+#Initialize weights of 0 to every layer
+def init_weights(m):
+    if isinstance(m, nn.Linear):
+        m.weight.data.fill_(0.)
+        m.bias.data.fill_(0.)
+
+init_zero = False
+if init_zero:
+    model.apply(init_weights)
+
+
+criterion = nn.NLLLoss()
+optimizer = optim.SGD(model.parameters(), lr=1)
+
+
+##Fit model
+time0 = time()
+epochs = 20
+losses = []
+for e in range(epochs):
+    running_loss = 0
+    for images, labels in trainloader:
+        # Flatten MNIST images into a 784 long vector
+        images = images.view(images.shape[0], -1)
+    
+        # Forward pass
+        optimizer.zero_grad()
+        
+        output = model(images)
+        loss = criterion(output, labels)
+        
+        #This is where the model learns by backpropagating
+        loss.backward()
+        
+        #And optimizes its weights here
+        optimizer.step()
+        
+        running_loss += loss.item()
+    else:
+        print(f"Epoch {e} - Training loss: {running_loss/len(trainloader)}")
+        losses.append(running_loss/len(trainloader))
+
+print(f"Training Time (in minutes) = {(time()-time0)/60}")
+
+## Learning curve
+plt.plot(losses)
+plt.xlabel("Epochs")
+plt.ylabel("Training loss")
+if init_zero:
+    plt.savefig("../plots/learning_curve_pytorch_zeroinit.png")
+else:
+    plt.savefig("../plots/learning_curve_pytorch.png")
+plt.show()
+
+## Evaluation
+correct_count, all_count = 0, 0
+for images,labels in testloader:
+  for i in range(len(labels)):
+    img = images[i].view(1, 784)
+    with torch.no_grad():
+        logps = model(img)
+
+    ps = torch.exp(logps)
+    probab = list(ps.numpy()[0])
+    pred_label = probab.index(max(probab))
+    true_label = labels.numpy()[i]
+    if(true_label == pred_label):
+      correct_count += 1
+    all_count += 1
+
+print("Number Of Images Tested =", all_count)
+print(f"Pytorch model's Accuracy = {(correct_count/all_count)}")
+
+
+
+########## My own implementation ############
 class my_model():
     
     def __init__(self):
@@ -62,7 +144,7 @@ class my_model():
         self.b3 = 2 * torch.rand(output_size) - 1
 
 
-    def stable_softmax(z):
+    def stable_softmax(self, z):
 
         exps = torch.exp(z - torch.max(z))
         return exps / torch.sum(exps)
@@ -99,12 +181,10 @@ class my_model():
         loss = -torch.sum(y * torch.log(yhat))
 
         grad_b3 = yhat - y
-        print(grad_b3.shape)
-        print(a2.T.shape)
         grad_W3 = torch.outer(grad_b3, a2)
-        grad_b2 =  torch.sigmoid(torch.matmul(torch.t(self.W3), grad_b3)) * (1 - torch.sigmoid(torch.matmul(torch.t(self.W3), grad_b3)))
+        grad_b2 =  torch.matmul(torch.t(self.W3), grad_b3) * a2 * (1-a2) 
         grad_W2 = torch.outer(grad_b2, a1)
-        grad_b1 = torch.sigmoid(torch.matmul(torch.t(self.W2), grad_b2)) * (1 - torch.sigmoid(torch.matmul(torch.t(self.W2), grad_b2)))
+        grad_b1 = torch.matmul(torch.t(self.W2), grad_b2) * a1 * (1-a1)
         grad_W1 = torch.outer(grad_b1, x)
 
         bias_grads = [grad_b1, grad_b2, grad_b3]
@@ -160,99 +240,48 @@ class my_model():
 
         return batch_loss
     
-    def train(self, epochs, trainloader, lr):
+    def train(self, epochs, mnist_trainset, bs, lr):
 
         time0 = time()
         losses = []
         for e in range(epochs):
             
+            trainloader = torch.utils.data.DataLoader(mnist_trainset, batch_size=bs, shuffle=True)
             running_loss = 0
             
             for images, labels in trainloader:
-
+                
                 batch_loss = self.batch_descent(images, labels, lr)
                 running_loss += batch_loss
             
             else: 
-                print(f"Epoch {e} - Training loss: {running_loss/len(trainloader)}")
-                losses.append(running_loss/len(trainloader))
+                print(f"Epoch {e} - Average training loss: {running_loss/(len(trainloader)*bs)}")
+                losses.append(running_loss/(len(trainloader)*bs))
 
         print(f"Training Time (in minutes) = {(time()-time0)/60}")
         return losses
 
-
-##Build model with pytorch
-model = nn.Sequential(nn.Linear(input_size, hidden_sizes[0]),
-                      nn.Sigmoid(),
-                      nn.Linear(hidden_sizes[0], hidden_sizes[1]),
-                      nn.Sigmoid(),
-                      nn.Linear(hidden_sizes[1], output_size),
-                      nn.LogSoftmax(dim=1))
+#Train my_model
+my_mod = my_model()
+losses = my_mod.train(3, mnist_trainset, 32, 1)
 
 
-#Initialize weights of 0 to every layer
-def init_weights(m):
-    if isinstance(m, nn.Linear):
-        m.weight.data.fill_(0.)
-        m.bias.data.fill_(0.)
-
-init_zero = False
-if init_zero:
-    model.apply(init_weights)
-
-
-criterion = nn.NLLLoss()
-optimizer = optim.SGD(model.parameters(), lr=1)
-
-
-##Fit model
-time0 = time()
-epochs = 20
-losses = []
-for e in range(epochs):
-    running_loss = 0
-    for images, labels in trainloader:
-        # Flatten MNIST images into a 784 long vector
-        images = images.view(images.shape[0], -1)
-    
-        # Forward pass
-        optimizer.zero_grad()
-        
-        output = model(images)
-        loss = criterion(output, labels)
-        
-        #This is where the model learns by backpropagating
-        loss.backward()
-        
-        #And optimizes its weights here
-        optimizer.step()
-        
-        running_loss += loss.item()
-    else:
-        print(f"Epoch {e} - Training loss: {running_loss/len(trainloader)}")
-        losses.append(running_loss/len(trainloader))
-
-print(f"Training Time (in minutes) = {(time()-time0)/60}")
-
+## Learning curve
 plt.plot(losses)
 plt.xlabel("Epochs")
 plt.ylabel("Training loss")
-if init_zero:
-    plt.savefig("learning_curve_pytorch_zeroinit.png")
-else:
-    plt.savefig("learning_curve_pytorch.png")
+plt.savefig("../plots/learning_curve_mymod.png")
 plt.show()
 
-## Evaluation
+
+#Evaluate performance
 correct_count, all_count = 0, 0
 for images,labels in testloader:
   for i in range(len(labels)):
-    img = images[i].view(1, 784)
-    with torch.no_grad():
-        logps = model(img)
-
-    ps = torch.exp(logps)
-    probab = list(ps.numpy()[0])
+    img = images[i].view(784)
+    ps = my_mod.feedforward(img)
+    probab = list(ps.numpy())
+    
     pred_label = probab.index(max(probab))
     true_label = labels.numpy()[i]
     if(true_label == pred_label):
@@ -260,8 +289,4 @@ for images,labels in testloader:
     all_count += 1
 
 print("Number Of Images Tested =", all_count)
-print(f"Model Accuracy = {(correct_count/all_count)}")
-
-
-
-
+print(f"My model's Accuracy = {(correct_count/all_count)}")
